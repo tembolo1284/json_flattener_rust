@@ -1,0 +1,30 @@
+[build-system]
+requires = ["maturin>=1.0,<2.0"]
+build-backend = "maturin"
+
+[tool.poetry]
+name = "json-flattener"
+version = "0.1.0"
+description = "High-performance JSON flattener with Rust backend"
+authors = ["Paul Nikholas Lopez <nik.lopez381@gmail.com>"]
+readme = "README.md"
+license = "MIT"
+repository = "https://github.com/tembolo1284/json_flattener_rust"
+packages = [{include = "python"}]
+
+[tool.poetry.dependencies]
+python = "^3.8"
+pandas = "^2.0.0"
+
+[tool.poetry.dev-dependencies]
+pytest = "^7.0.0"
+memory-profiler = "^0.61.0"
+matplotlib = "^3.6.0"
+tqdm = "^4.64.0"
+faker = "^13.0.0"
+
+[tool.poetry.extras]
+polaris = ["polars"]
+
+[tool.maturin]
+features = ["pyo3/extension-module"]
