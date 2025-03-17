@@ -46,78 +46,47 @@ if [ "$#" -gt 0 ]; then
     esac
 fi
 
-# Function to create Docker entrypoint script
-function create_entrypoint_script() {
-    print_step "Creating Docker entrypoint script..."
-    cat > docker-entrypoint.sh << 'EOF'
-#!/bin/bash
-set -e
+# Function to create Poetry configuration file if it doesn't exist
+function create_poetry_config() {
+    if [ ! -f "pyproject.toml" ]; then
+        print_step "Creating Poetry configuration (pyproject.toml)..."
+        cat > pyproject.toml << EOF
+[build-system]
+requires = ["maturin>=1.0,<2.0"]
+build-backend = "maturin"
 
-# Activate virtual environment
-source /app/venv/bin/activate
+[tool.poetry]
+name = "json-flattener"
+version = "0.1.0"
+description = "High-performance JSON flattener with Rust backend"
+authors = ["Paul Nikholas Lopez <nik.lopez381@gmail.com.com>"]
+readme = "README.md"
+packages = [{include = "python"}]
 
-# Print welcome message
-echo -e "\033[1;32m==>\033[0m \033[1mJSON Flattener Development Environment\033[0m"
-echo -e "\033[1;32m==>\033[0m \033[1mRust is built and Python environment is ready!\033[0m"
-echo ""
-echo "Available commands:"
-echo "  python python/data_generator.py           # Generate sample JSON files"
-echo "  python python/benchmark.py data/*.json    # Run benchmarks"
-echo ""
+[tool.poetry.dependencies]
+python = "^3.8"
+pandas = "^2.0.0"
+polars = {version = "^0.19.0", optional = true}
 
-# Execute the command passed to docker run
-exec "$@"
+[tool.poetry.group.dev.dependencies]
+pytest = "^7.0.0"
+memory-profiler = "^0.61.0"
+matplotlib = "^3.6.0"
+tqdm = "^4.64.0"
+faker = "^13.0.0"
+
+[tool.poetry.extras]
+polaris = ["polars"]
+
+[tool.maturin]
+module-name = "json_flattener_rust"
+python-source = "python"
+features = ["pyo3/extension-module"]
 EOF
-    chmod +x docker-entrypoint.sh
-}
-
-# Function to create Dockerfile
-function create_dockerfile() {
-    print_step "Creating Dockerfile..."
-    cat > Dockerfile << EOF
-FROM rust:slim-bullseye
-
-# Install Python and dependencies
-RUN apt-get update && apt-get install -y \\
-    python3 \\
-    python3-pip \\
-    python3-venv \\
-    pkg-config \\
-    libssl-dev \\
-    curl \\
-    git \\
-    && rm -rf /var/lib/apt/lists/*
-
-# Set working directory
-WORKDIR /app
-
-# Create and activate virtual environment
-RUN python3 -m venv /app/venv
-ENV PATH="/app/venv/bin:\$PATH"
-ENV VIRTUAL_ENV="/app/venv"
-
-# Install Python dependencies
-RUN pip install --upgrade pip && \\
-    pip install pandas polars maturin pytest memory-profiler matplotlib tqdm faker
-
-# Copy Rust project files
-COPY Cargo.toml .
-COPY src/ ./src/
-
-# Copy Python files
-COPY python/ ./python/
-
-# Build the Rust library
-RUN maturin develop --release
-
-# Add an entrypoint script that activates the virtual environment
-COPY docker-entrypoint.sh /usr/local/bin/
-RUN chmod +x /usr/local/bin/docker-entrypoint.sh
-
-# Set up the entrypoint
-ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
-CMD ["bash"]
-EOF
+        print_success "Poetry configuration created."
+    else
+        print_step "Using existing pyproject.toml configuration."
+    fi
 }
 
 # Function to set up local environment
@@ -148,7 +117,7 @@ function setup_local() {
     print_step "Installing Python dependencies..."
     
     pip install --upgrade pip
-    pip install pandas polars maturin pytest memory-profiler matplotlib tqdm faker
+    pip install pandas polars maturin pytest memory-profiler matplotlib tqdm faker pyarrow
     
     # Build Rust library
     print_step "Building Rust library with maturin..."
@@ -177,11 +146,67 @@ function setup_docker() {
         exit 1
     fi
     
-    # Create Docker entrypoint script
-    create_entrypoint_script
+    # Create Docker entrypoint script with simplified approach
+    print_step "Creating Docker entrypoint script..."
+    cat > docker-entrypoint.sh << 'EOF'
+#!/bin/bash
+set -e
+
+# Install Python dependencies directly
+pip install --no-cache-dir pandas polars pytest memory-profiler matplotlib tqdm faker pyarrow
+
+# Build Rust library
+cd /app
+cargo build --release
+maturin develop --release
+
+echo "==> Environment is ready!"
+echo "Available commands:"
+echo "  python python/data_generator.py"
+echo "  python python/benchmark.py data/small_sample.json"
+
+# Execute the command
+exec "$@"
+EOF
+    chmod +x docker-entrypoint.sh
     
-    # Create Dockerfile
-    create_dockerfile
+    # Create simplified Dockerfile
+    print_step "Creating Dockerfile..."
+    cat > Dockerfile << EOF
+FROM rust:slim-bullseye
+
+# Install Python and required system dependencies
+RUN apt-get update && apt-get install -y \\
+    python3 \\
+    python3-pip \\
+    python3-dev \\
+    pkg-config \\
+    libssl-dev \\
+    && rm -rf /var/lib/apt/lists/*
+
+# Ensure Python and pip are available without version suffix
+RUN which python3 || true && which pip3 || true && \\
+    which python || true && which pip || true && \\
+    if [ ! -e /usr/bin/python ]; then ln -s \$(which python3) /usr/local/bin/python || true; fi && \\
+    if [ ! -e /usr/bin/pip ]; then ln -s \$(which pip3) /usr/local/bin/pip || true; fi
+
+# Install maturin
+RUN pip install maturin
+
+# Set working directory
+WORKDIR /app
+
+# Copy entrypoint script
+COPY docker-entrypoint.sh /usr/local/bin/
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+
+# Set the entrypoint
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
+CMD ["bash"]
+EOF
+    
+    # Create data directory if it doesn't exist
+    mkdir -p data
     
     # Build Docker image
     print_step "Building Docker image..."
@@ -189,7 +214,7 @@ function setup_docker() {
     
     # Run Docker container with current directory mounted
     print_step "Starting Docker container..."
-    print_success "Docker environment ready! Your code is now running in the container."
+    print_success "Docker environment ready!"
     print_success "Any changes to the code in the mounted directory will be reflected in the container."
     
     # Mount the current directory to /app in the container

@@ -1,42 +1,30 @@
 FROM rust:slim-bullseye
 
-# Install Python and dependencies
+# Install Python and required system dependencies
 RUN apt-get update && apt-get install -y \
     python3 \
     python3-pip \
-    python3-venv \
+    python3-dev \
     pkg-config \
     libssl-dev \
-    curl \
-    git \
     && rm -rf /var/lib/apt/lists/*
+
+# Ensure Python and pip are available without version suffix
+RUN which python3 || true && which pip3 || true && \
+    which python || true && which pip || true && \
+    if [ ! -e /usr/bin/python ]; then ln -s $(which python3) /usr/local/bin/python || true; fi && \
+    if [ ! -e /usr/bin/pip ]; then ln -s $(which pip3) /usr/local/bin/pip || true; fi
+
+# Install maturin
+RUN pip install maturin
 
 # Set working directory
 WORKDIR /app
 
-# Create and activate virtual environment
-RUN python3 -m venv /app/venv
-ENV PATH="/app/venv/bin:$PATH"
-ENV VIRTUAL_ENV="/app/venv"
-
-# Install Python dependencies
-RUN pip install --upgrade pip && \
-    pip install pandas polars maturin pytest memory-profiler matplotlib tqdm faker
-
-# Copy Rust project files
-COPY Cargo.toml .
-COPY src/ ./src/
-
-# Copy Python files
-COPY python/ ./python/
-
-# Build the Rust library
-RUN maturin develop --release
-
-# Add an entrypoint script that activates the virtual environment
+# Copy entrypoint script
 COPY docker-entrypoint.sh /usr/local/bin/
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
-# Set up the entrypoint
+# Set the entrypoint
 ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
 CMD ["bash"]

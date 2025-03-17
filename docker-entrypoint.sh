@@ -1,17 +1,18 @@
 #!/bin/bash
 set -e
 
-# Activate virtual environment
-source /app/venv/bin/activate
+# Install Python dependencies directly
+pip install --no-cache-dir pandas polars pytest memory-profiler matplotlib tqdm faker pyarrow
 
-# Print welcome message
-echo -e "\033[1;32m==>\033[0m \033[1mJSON Flattener Development Environment\033[0m"
-echo -e "\033[1;32m==>\033[0m \033[1mRust is built and Python environment is ready!\033[0m"
-echo ""
+# Build Rust library
+cd /app
+cargo build --release
+maturin develop --release
+
+echo "==> Environment is ready!"
 echo "Available commands:"
-echo "  python python/data_generator.py           # Generate sample JSON files"
-echo "  python python/benchmark.py data/*.json    # Run benchmarks"
-echo ""
+echo "  python python/data_generator.py"
+echo "  python python/benchmark.py data/small_sample.json"
 
-# Execute the command passed to docker run
+# Execute the command
 exec "$@"
